@@ -1,0 +1,1376 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>漢字部件大偵探 - 學習單生成器</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@600;900&family=Kaiti+TC&family=BiauKai&display=swap" rel="stylesheet">
+  
+  <style>
+    body {
+      font-family: 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+      background-color: #f1f5f9;
+      color: #1e293b;
+    }
+
+    /* A4 Paper Dimensions */
+    .a4-sheet {
+      width: 210mm;
+      min-height: 297mm;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      margin: 0 auto;
+      background: white;
+      box-sizing: border-box;
+      padding: 10mm 12mm;
+      position: relative;
+    }
+
+    /* Standard Chinese Calligraphy Tianzige (田字格) */
+    .tianzige {
+      width: 44px;
+      height: 44px;
+      border: 1.5px solid #dc2626;
+      position: relative;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-family: 'BiauKai', 'Kaiti TC', 'Noto Serif TC', serif;
+      font-weight: bold;
+      color: #b91c1c;
+      flex-shrink: 0;
+    }
+    .tianzige::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 50%;
+      width: 100%;
+      height: 0;
+      border-top: 1px dashed #fca5a5;
+    }
+    .tianzige::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      width: 0;
+      height: 100%;
+      border-left: 1px dashed #fca5a5;
+    }
+
+    /* Print media styling */
+    @media print {
+      body {
+        background: transparent !important;
+        padding: 0 !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .a4-container {
+        padding: 0 !important;
+      }
+      .a4-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+        width: 100% !important;
+        min-height: 100vh !important;
+        padding: 8mm 10mm !important;
+        page-break-after: always;
+      }
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <header class="bg-indigo-700 text-white shadow-md sticky top-0 z-30 no-print">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center space-x-3">
+        <span class="text-3xl">🔍</span>
+        <div>
+          <h1 class="text-xl font-black tracking-wide">漢字部件大偵探 · 學習單生成器</h1>
+          <p class="text-xs text-indigo-200">藉由形近字與干擾部件辨析，引導學生掌握漢字形義結構</p>
+        </div>
+      </div>
+
+      <div class="flex items-center flex-wrap gap-2">
+        <button id="toggleAnswerKeyBtn" class="bg-indigo-600 hover:bg-indigo-500 border border-indigo-400 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1">
+          <span>👁️</span><span id="answerKeyText">顯示教師解答</span>
+        </button>
+        <button id="quickShuffleBtn" class="bg-indigo-600 hover:bg-indigo-500 border border-indigo-400 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1">
+          <span>🎲</span><span>重排部件</span>
+        </button>
+        <button id="exportWordBtn" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow transition flex items-center gap-1">
+          <span>📄</span><span>下載 Word 檔</span>
+        </button>
+        <button id="downloadPdfBtn" class="bg-emerald-500 hover:bg-emerald-600 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold shadow transition flex items-center gap-1">
+          <span>⬇️</span><span>下載 PDF</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- Left Controls Panel -->
+    <div class="lg:col-span-5 flex flex-col gap-5 no-print">
+
+      <!-- Database Status & Component DB Manager -->
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-bold text-slate-800">📚 漢字部件庫狀態</span>
+            <span id="dbBadge" class="bg-emerald-100 text-emerald-700 text-[11px] px-2 py-0.5 rounded-full font-semibold">載入中...</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="editDbModalBtn" class="text-xs text-indigo-600 hover:text-indigo-800 font-bold underline">
+              ✏️ 編輯部件庫
+            </button>
+            <button id="uploadDbBtn" class="text-xs text-indigo-600 hover:text-indigo-800 font-bold underline">
+              匯入 JSON
+            </button>
+          </div>
+          <input type="file" id="dbFileInput" accept=".json" class="hidden">
+        </div>
+        <p class="text-xs text-slate-500 leading-relaxed">
+          已具備本機自動記憶（下次開啟自動保留最新部件資料），無需每次重複上傳。亦可隨時點擊「編輯部件庫」檢視、修改或匯出 JSON。
+        </p>
+      </div>
+
+      <!-- Sheet Config Panel -->
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+        <h2 class="text-sm font-bold text-slate-700 flex items-center gap-1.5 uppercase tracking-wider">
+          <span>⚙️</span> 學習單基本設定
+        </h2>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">學習單標題</label>
+            <input type="text" id="sheetTitleInput" value="生字部件大偵探：請拼出正確漢字！" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-indigo-400 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">班級姓名欄位說明</label>
+            <input type="text" id="sheetSubHeaderInput" value="______年______班  座號：______  姓名：____________  得分：______" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-indigo-400 focus:outline-none">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-3 pt-1">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">每頁題數</label>
+            <select id="questionsPerPageSelect" class="w-full text-sm border border-slate-300 rounded-lg px-2 py-1.5 bg-white font-medium">
+              <option value="4">4 題（寬敞）</option>
+              <option value="6">6 題（適中）</option>
+              <option value="8">8 題（標準）</option>
+              <option value="10" selected>10 題（最多/精實）</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">預設干擾部件數</label>
+            <select id="distractorCountSelect" class="w-full text-sm border border-slate-300 rounded-lg px-2 py-1.5 bg-white font-medium">
+              <option value="1">1 個干擾</option>
+              <option value="2" selected>2 個干擾</option>
+              <option value="3">3 個干擾</option>
+              <option value="4">4 個干擾</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">色彩模式</label>
+            <select id="sheetColorMode" class="w-full text-sm border border-slate-300 rounded-lg px-2 py-1.5 bg-white font-medium">
+              <option value="grayscale" selected>黑白列印模式</option>
+              <option value="colorful">彩色教學模式</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Hint Toggle -->
+        <div class="pt-2 border-t border-slate-100 flex items-center justify-between">
+          <div>
+            <div class="text-xs font-bold text-slate-700">顯示形近字提示標籤</div>
+            <div class="text-[11px] text-slate-500">開起時顯示【形近字對比：晴、清】，關閉時僅標示題號保留純偵探線索</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="toggleConfusingHintCheckbox" class="sr-only peer" checked>
+            <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Questions List Header & Template Import/Export -->
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-4">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <h2 class="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+            <span>📝</span> 題目編輯區 (<span id="questionCountText">10</span> 題)
+          </h2>
+          <div class="flex items-center gap-1.5">
+            <button id="downloadTemplateBtn" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1 rounded transition" title="下載目前題目為 JSON 範本檔">
+              ⬇️ 匯出範本
+            </button>
+            <button id="uploadTemplateBtn" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1 rounded transition" title="上傳過去儲存的題目 JSON 範本">
+              ⬆️ 匯入範本
+            </button>
+            <input type="file" id="templateFileInput" accept=".json" class="hidden">
+            <button id="addSingleQuestionBtn" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2.5 py-1 rounded transition flex items-center gap-0.5">
+              <span>＋</span> 加題
+            </button>
+          </div>
+        </div>
+
+        <!-- Quick Batch Input -->
+        <div class="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+          <label class="block text-xs font-bold text-slate-700 mb-1">🚀 快速生字套用 (自動拆解部件並產生推薦形近字與預設例句)</label>
+          <div class="flex gap-2">
+            <input type="text" id="batchCharInput" placeholder="例如：晴 慢 願 練 護 警 察 籃 樹 湖" class="flex-1 text-sm border border-slate-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+            <button id="applyBatchBtn" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded-md transition">套用生字</button>
+          </div>
+        </div>
+
+        <!-- Scrollable Questions Container -->
+        <div id="questionsEditorList" class="flex flex-col gap-3 max-h-[480px] overflow-y-auto pr-1">
+          <!-- Dynamically filled by JavaScript -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Panel: Live A4 Worksheet Preview -->
+    <div class="lg:col-span-7 flex flex-col items-center a4-container">
+      <div class="text-xs font-semibold text-slate-500 mb-2 flex items-center gap-1.5 no-print">
+        <span>📄</span><span>A4 學習單即時預覽 (列印時將以真實 210mm×297mm 比例完美輸出)</span>
+      </div>
+
+      <!-- Printable A4 sheets are generated here; every sheet keeps the selected question count. -->
+      <div id="worksheetPages" class="w-full space-y-5"></div>
+
+    </div>
+
+  </main>
+
+  <!-- Component DB Editor Modal -->
+  <div id="dbEditorModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[88vh] overflow-hidden">
+      <!-- Modal Header -->
+      <div class="px-5 py-3.5 bg-indigo-700 text-white flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🛠️</span>
+          <div>
+            <h3 class="font-bold text-base">漢字部件庫即時管理與編輯</h3>
+            <p class="text-[11px] text-indigo-200">格式與部件庫 JSON 完全相容，儲存後直接保存在您的瀏覽器中</p>
+          </div>
+        </div>
+        <button id="closeDbModalBtn" class="text-indigo-200 hover:text-white text-xl font-bold">✕</button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-5 flex-1 overflow-y-auto space-y-4 text-xs">
+        
+        <!-- Search & Add Row -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">🔍 檢索漢字部件</label>
+            <div class="flex gap-1.5">
+              <input type="text" id="modalSearchChar" maxlength="4" placeholder="輸入單字，如：晴" class="w-full border border-slate-300 rounded px-2.5 py-1 text-xs">
+              <button id="modalSearchBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded font-bold">查詢</button>
+            </div>
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">➕ 新增 / 編輯單字條目</label>
+            <div class="flex gap-1.5">
+              <input type="text" id="modalAddChar" maxlength="1" placeholder="字(例:照)" class="w-16 text-center border border-slate-300 rounded px-2 py-1 font-bold">
+              <input type="text" id="modalAddComps" placeholder="部件逗號隔開(例:日,召,灬)" class="flex-1 border border-slate-300 rounded px-2 py-1">
+              <button id="modalSaveEntryBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded font-bold">儲存條目</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Info & Stats -->
+        <div class="flex items-center justify-between text-slate-600 text-xs px-1">
+          <span>目前庫中總字數：<strong id="modalDbCount" class="text-indigo-700">0</strong> 字</span>
+          <div class="flex gap-2">
+            <button id="modalExportJsonBtn" class="text-indigo-600 hover:underline font-bold">💾 下載目前部件庫 JSON</button>
+            <button id="modalResetDbBtn" class="text-rose-600 hover:underline font-bold">↺ 恢復預設庫</button>
+          </div>
+        </div>
+
+        <!-- Search Result Box -->
+        <div id="modalSearchResultArea" class="hidden p-3 bg-indigo-50 border border-indigo-200 rounded-lg flex items-center justify-between">
+          <div>
+            <span class="text-sm font-black text-indigo-900 mr-2" id="resTargetChar">晴</span>
+            <span class="text-xs text-slate-700">部件：<strong id="resTargetComps" class="text-indigo-700 font-mono">["日", "青"]</strong></span>
+          </div>
+          <button id="modalDeleteFoundBtn" class="text-rose-600 hover:text-rose-800 font-bold text-xs">刪除此字條目</button>
+        </div>
+
+        <!-- Raw JSON Viewer / Direct Edit Area -->
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="font-bold text-slate-700">📋 常用核心字條目預覽 (共抽樣顯示前 20 筆，可全量下載備份)</label>
+          </div>
+          <textarea id="modalJsonSnippet" readonly class="w-full h-44 font-mono text-[11px] bg-slate-900 text-emerald-400 p-3 rounded-lg border border-slate-800 resize-none"></textarea>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="px-5 py-3 bg-slate-100 border-t border-slate-200 flex justify-end">
+        <button id="modalFinishBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition">
+          完成並套用回學習單
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="fixed bottom-5 right-5 bg-slate-800 text-white text-sm px-4 py-2.5 rounded-lg shadow-xl pointer-events-none opacity-0 transition-opacity duration-300 z-50 flex items-center gap-2">
+    <span id="toastIcon">✨</span>
+    <span id="toastMsg">通知訊息</span>
+  </div>
+
+  <script>
+    // Embedded core radical database
+    const DEFAULT_HANZI_DB = {
+      "晴": ["日", "青"],
+      "睛": ["目", "青"],
+      "清": ["氵", "青"],
+      "請": ["言", "青"],
+      "靖": ["立", "青"],
+      "情": ["忄", "青"],
+      "朗": ["丶", "月", "良"],
+      "慢": ["忄", "曼"],
+      "漫": ["氵", "曼"],
+      "幔": ["巾", "曼"],
+      "曼": ["日", "罒", "又"],
+      "願": ["原", "頁"],
+      "原": ["厂", "泉"],
+      "練": ["糹", "柬"],
+      "揀": ["扌", "柬"],
+      "柬": ["柬"],
+      "護": ["言", "蒦"],
+      "獲": ["犭", "蒦"],
+      "穫": ["禾", "蒦"],
+      "蒦": ["艹", "隻"],
+      "警": ["敬", "言"],
+      "驚": ["敬", "馬"],
+      "敬": ["苟", "攵"],
+      "察": ["宀", "祭"],
+      "擦": ["扌", "祭"],
+      "祭": ["𠂊", "冫", "示"],
+      "籃": ["竹", "監"],
+      "藍": ["艹", "監"],
+      "檻": ["木", "監"],
+      "監": ["臣", "𠂉", "丶", "皿"],
+      "樹": ["木", "尌"],
+      "湖": ["氵", "胡"],
+      "蝴": ["虫", "胡"],
+      "糊": ["米", "胡"],
+      "胡": ["古", "月"],
+      "期": ["其", "月"],
+      "欺": ["其", "欠"],
+      "棋": ["木", "其"],
+      "旗": ["方", "𠂉", "其"],
+      "基": ["其", "土"],
+      "線": ["糹", "泉"],
+      "泉": ["白", "水"],
+      "辨": ["辛", "辛"],
+      "辦": ["辛", "力", "辛"],
+      "瓣": ["辛", "瓜", "辛"],
+      "辯": ["辛", "言", "辛"],
+      "喝": ["口", "曷"],
+      "渴": ["氵", "曷"],
+      "歇": ["曷", "欠"],
+      "褐": ["衤", "曷"],
+      "借": ["亻", "昔"],
+      "惜": ["忄", "昔"],
+      "錯": ["金", "昔"],
+      "獵": ["犭", "巤"],
+      "蠟": ["虫", "巤"],
+      "讀": ["言", "賣"],
+      "續": ["糹", "賣"],
+      "賣": ["士", "買"],
+      "買": ["罒", "貝"],
+      "貝": ["目", "八"],
+      "照": ["昭", "灬"],
+      "昭": ["日", "召"],
+      "召": ["刀", "口"],
+      "日": ["日"],
+      "月": ["月"],
+      "目": ["目"],
+      "水": ["水"],
+      "氵": ["氵"],
+      "木": ["木"],
+      "火": ["火"],
+      "土": ["土"],
+      "金": ["金"],
+      "言": ["言"],
+      "竹": ["亇", "亇"],
+      "艸": ["屮", "屮"],
+      "艹": ["十", "丨"],
+      "虫": ["虫"],
+      "魚": ["𠂊", "田", "灬"],
+      "鳥": ["鳥"],
+      "犭": ["犭"],
+      "忄": ["忄"],
+      "扌": ["扌"],
+      "糹": ["糹"],
+      "立": ["立"],
+      "青": ["龶", "月"],
+      "良": ["丶", "艮"],
+      "頁": ["頁"],
+      "敬": ["苟", "攵"],
+      "馬": ["馬"]
+    };
+
+    const LOCAL_STORAGE_DB_KEY = "hanzi_custom_db_v2";
+    // Keep the large component library outside this HTML.  On GitHub Pages this
+    // relative URL resolves to the same repository, and the last loaded copy
+    // remains available in localStorage when the network is unavailable.
+    const EXTERNAL_DB_URL = './hanzi_db.json';
+
+    // Load active DB from localStorage if exists
+    let activeHanziDb = loadInitialDatabase();
+
+    function loadInitialDatabase() {
+      try {
+        const saved = localStorage.getItem(LOCAL_STORAGE_DB_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+            return { ...DEFAULT_HANZI_DB, ...parsed };
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load local DB", e);
+      }
+      return { ...DEFAULT_HANZI_DB };
+    }
+
+    function saveDatabaseToStorage() {
+      try {
+        localStorage.setItem(LOCAL_STORAGE_DB_KEY, JSON.stringify(activeHanziDb));
+      } catch (e) {
+        console.warn("Storage quota exceeded or unavailable", e);
+      }
+      updateDbBadge();
+    }
+
+    function updateDbBadge() {
+      const count = Object.keys(activeHanziDb).length;
+      const badge = document.getElementById('dbBadge');
+      badge.textContent = `已載入 ${count.toLocaleString()} 字 (已記憶)`;
+      badge.className = "bg-emerald-100 text-emerald-800 text-[11px] px-2 py-0.5 rounded-full font-semibold";
+      const modalCount = document.getElementById('modalDbCount');
+      if (modalCount) modalCount.textContent = count.toLocaleString();
+    }
+
+    async function loadExternalDatabase() {
+      try {
+        const response = await fetch(EXTERNAL_DB_URL, { cache: 'no-cache' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const externalDb = await response.json();
+        if (!externalDb || typeof externalDb !== 'object' || Array.isArray(externalDb)) {
+          throw new Error('資料格式不正確');
+        }
+        // The hosted library is authoritative; locally added entries not in it remain.
+        activeHanziDb = { ...activeHanziDb, ...externalDb };
+        saveDatabaseToStorage();
+        renderEditorList();
+        renderWorksheet();
+        showToast(`已從 GitHub 載入 ${Object.keys(externalDb).length.toLocaleString()} 筆漢字部件資料！`, '☁️');
+      } catch (error) {
+        console.warn('Unable to load hosted component library', error);
+        updateDbBadge();
+      }
+    }
+
+    // Default 10 Questions Data
+    let questionsData = [
+      {
+        target: "晴",
+        confusing: "睛, 清",
+        clue: "今天天氣（　）朗，萬里無雲。",
+        pinyin: "ㄑㄧㄥˊ"
+      },
+      {
+        target: "慢",
+        confusing: "漫",
+        clue: "請你放（　）腳步，注意安全。",
+        pinyin: "ㄇㄢˋ"
+      },
+      {
+        target: "願",
+        confusing: "",
+        clue: "許下美好的生日心（　）。",
+        pinyin: "ㄩㄢˋ"
+      },
+      {
+        target: "練",
+        confusing: "揀",
+        clue: "只要勤奮（　）習，就能進步。",
+        pinyin: "ㄌㄧㄢˋ"
+      },
+      {
+        target: "護",
+        confusing: "獲",
+        clue: "我們要好好愛（　）小動物。",
+        pinyin: "ㄏㄨˋ"
+      },
+      {
+        target: "警",
+        confusing: "驚",
+        clue: "遇見危險要立刻按（　）鈴。",
+        pinyin: "ㄐㄧㄥˇ"
+      },
+      {
+        target: "察",
+        confusing: "擦",
+        clue: "科學家仔細觀（　）昆蟲活動。",
+        pinyin: "ㄔㄚˊ"
+      },
+      {
+        target: "籃",
+        confusing: "藍",
+        clue: "下課後我們在操場打（　）球。",
+        pinyin: "ㄌㄢˊ"
+      },
+      {
+        target: "樹",
+        confusing: "",
+        clue: "公園裡有一棵百年老（　）。",
+        pinyin: "ㄕㄨˋ"
+      },
+      {
+        target: "湖",
+        confusing: "蝴, 糊",
+        clue: "這座高山（　）泊水質非常清澈。",
+        pinyin: "ㄏㄨˊ"
+      }
+    ];
+
+    let showAnswerKey = false;
+    let showConfusingHint = true;
+
+    // Toast helper
+    function showToast(msg, icon = '✨') {
+      const toast = document.getElementById('toast');
+      document.getElementById('toastMsg').textContent = msg;
+      document.getElementById('toastIcon').textContent = icon;
+      toast.classList.remove('opacity-0');
+      toast.classList.add('opacity-100');
+      setTimeout(() => {
+        toast.classList.remove('opacity-100');
+        toast.classList.add('opacity-0');
+      }, 2500);
+    }
+
+    // Component retrieval
+    function getComponents(char) {
+      if (!char) return [];
+      if (activeHanziDb[char] && Array.isArray(activeHanziDb[char])) {
+        return activeHanziDb[char].filter(c => c && c.length > 0 && !/^(\[|\]|G|T|J|K|V|H|A)$/.test(c));
+      }
+      return [char];
+    }
+
+    // Automatically find similar characters from DB
+    function findAutoConfusingChars(targetChar, limit = 3) {
+      const targetComps = getComponents(targetChar);
+      if (targetComps.length === 0) return [];
+
+      const candidates = [];
+      for (const [char, comps] of Object.entries(activeHanziDb)) {
+        if (char === targetChar || char.length > 1) continue;
+        const validComps = comps.filter(c => c && !/^(\[|\]|G|T|J|K|V|H|A)$/.test(c));
+        const shared = targetComps.filter(c => validComps.includes(c));
+        const diff = validComps.filter(c => !targetComps.includes(c));
+        if (shared.length > 0 && diff.length > 0) {
+          candidates.push({ char, sharedCount: shared.length, diffComps: diff });
+        }
+      }
+
+      candidates.sort((a, b) => b.sharedCount - a.sharedCount);
+      return candidates.slice(0, limit);
+    }
+
+    // Assemble correct + distractor components
+    function buildQuestionComponents(qItem, distractorCount) {
+      const correctComps = getComponents(qItem.target);
+      let distractorComps = [];
+
+      if (qItem.confusing && qItem.confusing.trim()) {
+        const confChars = qItem.confusing.split(/[,，、\s]+/).filter(Boolean);
+        confChars.forEach(c => {
+          const comps = getComponents(c);
+          comps.forEach(comp => {
+            if (!correctComps.includes(comp) && !distractorComps.includes(comp)) {
+              distractorComps.push(comp);
+            }
+          });
+        });
+      }
+
+      if (distractorComps.length < distractorCount) {
+        const autoSim = findAutoConfusingChars(qItem.target, 5);
+        for (const sim of autoSim) {
+          for (const d of sim.diffComps) {
+            if (!correctComps.includes(d) && !distractorComps.includes(d)) {
+              distractorComps.push(d);
+              if (distractorComps.length >= distractorCount) break;
+            }
+          }
+          if (distractorComps.length >= distractorCount) break;
+        }
+      }
+
+      const commonRadicals = ["氵", "木", "亻", "口", "扌", "心", "日", "月", "目", "土", "金", "言", "艹", "犭", "糹"];
+      let rIdx = 0;
+      while (distractorComps.length < distractorCount && rIdx < commonRadicals.length) {
+        const cand = commonRadicals[rIdx++];
+        if (!correctComps.includes(cand) && !distractorComps.includes(cand)) {
+          distractorComps.push(cand);
+        }
+      }
+
+      distractorComps = distractorComps.slice(0, distractorCount);
+
+      return {
+        correct: correctComps,
+        distractors: distractorComps,
+        all: [...correctComps.map(c => ({ text: c, isCorrect: true })), ...distractorComps.map(c => ({ text: c, isCorrect: false }))]
+      };
+    }
+
+    // Physics force-directed layout to scatter components nicely inside card
+    function renderScatterCanvas(canvas, componentsList, colorMode) {
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+      ctx.clearRect(0, 0, width, height);
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(1, 1, width - 2, height - 2);
+
+      if (!componentsList || componentsList.length === 0) return;
+
+      const palette = colorMode === 'colorful' 
+        ? ['#1d4ed8', '#b91c1c', '#047857', '#b45309', '#6d28d9', '#0e7490'] 
+        : ['#1e293b', '#334155', '#475569'];
+
+      const padding = 14;
+      const fontSize = 21;
+      ctx.font = `bold ${fontSize}px 'BiauKai', 'Kaiti TC', 'Noto Serif TC', serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      const particles = componentsList.map((item, idx) => {
+        return {
+          text: item.text,
+          isCorrect: item.isCorrect,
+          color: palette[idx % palette.length],
+          x: padding + Math.random() * (width - padding * 2),
+          y: padding + Math.random() * (height - padding * 2),
+          vx: 0,
+          vy: 0,
+          radius: fontSize * 0.72,
+          rotation: (Math.random() - 0.5) * (Math.PI / 5)
+        };
+      });
+
+      const iterations = 80;
+      const repulsionDist = fontSize * 1.45;
+
+      for (let step = 0; step < iterations; step++) {
+        for (let i = 0; i < particles.length; i++) {
+          for (let j = i + 1; j < particles.length; j++) {
+            const dx = particles[j].x - particles[i].x;
+            const dy = particles[j].y - particles[i].y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            if (dist < repulsionDist) {
+              const force = (repulsionDist - dist) / dist * 0.45;
+              const fx = dx * force;
+              const fy = dy * force;
+              particles[i].x -= fx;
+              particles[i].y -= fy;
+              particles[j].x += fx;
+              particles[j].y += fy;
+            }
+          }
+
+          if (particles[i].x < padding) particles[i].x = padding;
+          if (particles[i].x > width - padding) particles[i].x = width - padding;
+          if (particles[i].y < padding) particles[i].y = padding;
+          if (particles[i].y > height - padding) particles[i].y = height - padding;
+        }
+      }
+
+      particles.forEach((p) => {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation);
+
+        ctx.beginPath();
+        ctx.arc(0, 0, p.radius * 0.9, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.fillStyle = p.color;
+        ctx.fillText(p.text, 0, 1);
+        ctx.restore();
+      });
+    }
+
+    // Render one A4 page for every selected group of questions.
+    function renderWorksheet() {
+      const qPerPage = parseInt(document.getElementById('questionsPerPageSelect').value);
+      const distractorCount = parseInt(document.getElementById('distractorCountSelect').value);
+      const colorMode = document.getElementById('sheetColorMode').value;
+      const pagesContainer = document.getElementById('worksheetPages');
+      const totalPages = Math.max(1, Math.ceil(questionsData.length / qPerPage));
+      const title = document.getElementById('sheetTitleInput').value || '生字部件大偵探';
+      const subHeader = document.getElementById('sheetSubHeaderInput').value;
+
+      pagesContainer.innerHTML = '';
+
+      // Adapt gap & padding based on question count (10 questions needs compact padding)
+      const isTenQuestions = qPerPage >= 10;
+      const cardPaddingClass = isTenQuestions ? "p-2" : "p-2.5";
+      const clueMarginClass = isTenQuestions ? "mb-1.5 leading-snug" : "mb-2 leading-relaxed";
+      const canvasHeight = isTenQuestions ? "52" : "60";
+
+      for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+        const pageStart = pageIndex * qPerPage;
+        const pageQuestions = questionsData.slice(pageStart, pageStart + qPerPage);
+        const sheet = document.createElement('div');
+        sheet.className = 'a4-sheet text-slate-900 flex flex-col justify-between';
+        sheet.innerHTML = `
+          <header class="border-b-2 border-slate-800 pb-2 mb-2">
+            <div class="text-center">
+              <h1 class="text-2xl font-black tracking-wider text-slate-900 mb-0.5">${title}</h1>
+              <div class="text-[11px] font-medium text-slate-600 tracking-wide">提示：仔細觀察偵探卡裡的零散部件，結合例句線索，找出屬於目標字的部件並在田字格端正寫出！</div>
+            </div>
+            <div class="mt-2 text-xs text-slate-700 font-semibold flex justify-between px-2">${subHeader}</div>
+          </header>
+          <div class="grid grid-cols-2 gap-x-3 gap-y-2.5 flex-1 content-start"></div>
+          <footer class="mt-2 pt-1.5 border-t border-slate-300 text-[10px] text-slate-500 flex justify-between items-center">
+            <span>國語文課堂形近字與部件辨析學習單 · 部件偵探小組專用</span>
+            <span>第 ${pageIndex + 1} 頁 / 共 ${totalPages} 頁</span>
+          </footer>`;
+        const previewGrid = sheet.querySelector('.grid');
+        pagesContainer.appendChild(sheet);
+
+        pageQuestions.forEach((q, localIndex) => {
+        const questionIndex = pageStart + localIndex;
+        const compData = buildQuestionComponents(q, distractorCount);
+        
+        let hintLabel = '';
+        if (showConfusingHint) {
+          if (q.confusing && q.confusing.trim()) {
+            hintLabel = `<span class="text-[11px] text-slate-500 font-normal">【形近字對比：${q.confusing}】</span>`;
+          } else {
+            const autoFound = findAutoConfusingChars(q.target, 2).map(item => item.char);
+            hintLabel = autoFound.length > 0 
+              ? `<span class="text-[11px] text-slate-500 font-normal">【推薦形近字：${autoFound.join('、')}】</span>`
+              : `<span class="text-[11px] text-slate-400 font-normal">【部件拼寫】</span>`;
+          }
+        }
+
+        const cardBox = document.createElement('div');
+        cardBox.className = `border border-slate-300 rounded-lg ${cardPaddingClass} flex flex-col justify-between bg-white relative shadow-[0_1px_2px_rgba(0,0,0,0.04)]`;
+
+        let formattedClue = q.clue || '';
+        // 檢查例句是否已包含目標字或任何形式的填空符號（全形/半形括號、底線等）
+        const hasBlankPattern = /[（(][\s　]*[）)]|__+|＿+/.test(formattedClue);
+
+        if (formattedClue.includes(q.target)) {
+          // 如果例句中直接寫了目標字，將目標字轉換為底線挖空或顯示解答
+          const replacement = showAnswerKey 
+            ? `<span class="text-red-600 font-bold border-b-2 border-red-500 px-1">${q.target}</span>`
+            : `<span class="inline-block border-b-2 border-slate-700 w-8 text-center font-bold"></span>`;
+          formattedClue = formattedClue.replace(new RegExp(q.target, 'g'), replacement);
+        } else if (hasBlankPattern) {
+          // 已有括號或填空時：學生版保持原括號，教師解答版則將括號內容替換為紅字解答
+          if (showAnswerKey) {
+            formattedClue = formattedClue.replace(/[（(][\s　]*[）)]/g, `（<span class="text-red-600 font-bold">${q.target}</span>）`);
+          }
+        } else {
+          // 句子中完全沒有目標字也沒有任何括號挖空時，才在句尾補充一個填空括號
+          formattedClue = `${formattedClue}（${showAnswerKey ? `<span class="text-red-600 font-bold">${q.target}</span>` : '　'}）`;
+        }
+
+        cardBox.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between gap-1 mb-1">
+              <div class="text-xs font-bold text-slate-800 flex items-center gap-1">
+                <span class="bg-slate-800 text-white rounded-full w-4.5 h-4.5 flex items-center justify-center text-[10px] font-black">${questionIndex + 1}</span>
+                ${hintLabel}
+              </div>
+              ${showAnswerKey ? `<span class="text-[11px] font-mono text-red-600 font-bold">${q.pinyin || ''}</span>` : ''}
+            </div>
+
+            <div class="text-xs text-slate-800 font-medium ${clueMarginClass} tracking-wide">
+              ${formattedClue}
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+            <div class="flex-1 flex flex-col">
+              <span class="text-[9.5px] text-slate-400 font-semibold mb-0.5">偵探部件庫 (含干擾部件)</span>
+              <div class="w-full h-${isTenQuestions ? '13' : '15'} rounded border border-slate-200 overflow-hidden bg-slate-50 relative">
+                <canvas id="canvas_q_${questionIndex}" width="180" height="${canvasHeight}" class="w-full h-full block"></canvas>
+              </div>
+            </div>
+
+            <div class="flex flex-col items-center">
+              <span class="text-[9.5px] text-slate-500 font-semibold mb-0.5">寫出正字</span>
+              <div class="tianzige ${isTenQuestions ? '!w-10 !h-10 !text-[24px]' : ''}">
+                ${showAnswerKey ? q.target : ''}
+              </div>
+            </div>
+          </div>
+        `;
+
+        previewGrid.appendChild(cardBox);
+
+        requestAnimationFrame(() => {
+          const canvas = document.getElementById(`canvas_q_${questionIndex}`);
+          if (canvas) {
+            renderScatterCanvas(canvas, compData.all, colorMode);
+          }
+        });
+        });
+      }
+    }
+
+    // Render Question Editors List
+    function renderEditorList() {
+      const editorList = document.getElementById('questionsEditorList');
+      editorList.innerHTML = '';
+      document.getElementById('questionCountText').textContent = questionsData.length;
+
+      questionsData.forEach((item, index) => {
+        const itemCard = document.createElement('div');
+        itemCard.className = "bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs flex flex-col gap-2 relative group hover:border-indigo-300 transition";
+
+        const comps = getComponents(item.target);
+
+        itemCard.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-slate-700 flex items-center gap-1.5">
+              <span class="bg-indigo-600 text-white w-4 h-4 rounded-full flex items-center justify-center text-[10px]">${index + 1}</span>
+              目標生字：
+              <input type="text" value="${item.target}" maxlength="2" data-index="${index}" data-field="target" class="target-input w-10 text-center font-bold text-sm bg-white border border-slate-300 rounded px-1 py-0.5 text-indigo-700 focus:outline-indigo-500">
+            </span>
+            <div class="flex items-center gap-2">
+              <span class="text-[11px] text-slate-500">部件：<span class="text-indigo-600 font-bold">${comps.join(' + ') || '無'}</span></span>
+              <button data-index="${index}" class="delete-q-btn text-slate-400 hover:text-red-500 font-bold transition text-sm">✕</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] text-slate-500 font-medium mb-0.5">指定形近字 (留空則系統自動匹配)</label>
+              <input type="text" value="${item.confusing}" placeholder="例：睛, 清" data-index="${index}" data-field="confusing" class="w-full bg-white border border-slate-300 rounded px-2 py-1 focus:outline-indigo-500">
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-500 font-medium mb-0.5">注音/拼音 (解答用)</label>
+              <input type="text" value="${item.pinyin || ''}" placeholder="例：ㄑㄧㄥˊ" data-index="${index}" data-field="pinyin" class="w-full bg-white border border-slate-300 rounded px-2 py-1 focus:outline-indigo-500">
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-[11px] text-slate-500 font-medium mb-0.5">語詞或例句線索 (可用「（　）」代替生字)</label>
+            <input type="text" value="${item.clue}" placeholder="例：今天天氣（　）朗" data-index="${index}" data-field="clue" class="w-full bg-white border border-slate-300 rounded px-2 py-1 focus:outline-indigo-500">
+          </div>
+        `;
+
+        editorList.appendChild(itemCard);
+      });
+
+      // Bind input events
+      editorList.querySelectorAll('input').forEach(input => {
+        input.addEventListener('input', (e) => {
+          const idx = parseInt(e.target.dataset.index);
+          const field = e.target.dataset.field;
+          questionsData[idx][field] = e.target.value;
+          renderWorksheet();
+        });
+      });
+
+      // Bind delete events
+      editorList.querySelectorAll('.delete-q-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const idx = parseInt(e.target.dataset.index);
+          if (questionsData.length <= 1) {
+            showToast('學習單至少需要保留 1 道題目！', '⚠️');
+            return;
+          }
+          questionsData.splice(idx, 1);
+          renderEditorList();
+          renderWorksheet();
+          showToast('題目已刪除');
+        });
+      });
+    }
+
+    // Header Inputs sync
+    document.getElementById('sheetTitleInput').addEventListener('input', renderWorksheet);
+    document.getElementById('sheetSubHeaderInput').addEventListener('input', renderWorksheet);
+
+    document.getElementById('questionsPerPageSelect').addEventListener('change', () => {
+      renderWorksheet();
+    });
+
+    document.getElementById('distractorCountSelect').addEventListener('change', () => {
+      renderWorksheet();
+    });
+
+    document.getElementById('sheetColorMode').addEventListener('change', () => {
+      renderWorksheet();
+    });
+
+    // Toggle Confusing Hint Checkbox
+    const toggleConfusingHintCheckbox = document.getElementById('toggleConfusingHintCheckbox');
+    toggleConfusingHintCheckbox.addEventListener('change', (e) => {
+      showConfusingHint = e.target.checked;
+      renderWorksheet();
+      showToast(showConfusingHint ? '已開啟【形近字對比】標籤提示' : '已關閉【形近字對比】提示');
+    });
+
+    // Toggle Teacher Answer Key
+    document.getElementById('toggleAnswerKeyBtn').addEventListener('click', () => {
+      showAnswerKey = !showAnswerKey;
+      const btnText = document.getElementById('answerKeyText');
+      if (showAnswerKey) {
+        btnText.textContent = '隱藏教師解答 (學生版)';
+        showToast('已切換為【教師解答版】', '🎯');
+      } else {
+        btnText.textContent = '顯示教師解答';
+        showToast('已切換為【學生作答版】', '📝');
+      }
+      renderWorksheet();
+    });
+
+    // Quick Re-shuffle button
+    document.getElementById('quickShuffleBtn').addEventListener('click', () => {
+      renderWorksheet();
+      showToast('已重新亂序散布所有題目部件！', '🎲');
+    });
+
+    // Direct multi-page PDF download (rather than relying on a browser print dialog).
+    document.getElementById('downloadPdfBtn').addEventListener('click', async () => {
+      const button = document.getElementById('downloadPdfBtn');
+      try {
+        button.disabled = true;
+        button.classList.add('opacity-60', 'cursor-wait');
+        await document.fonts.ready;
+        await new Promise(requestAnimationFrame);
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        const sheets = [...document.querySelectorAll('.a4-sheet')];
+        for (let i = 0; i < sheets.length; i++) {
+          const canvas = await html2canvas(sheets[i], { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+          if (i > 0) pdf.addPage();
+          pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+        }
+        pdf.save(`漢字部件大偵探_${Date.now()}.pdf`);
+        showToast(`已下載 ${sheets.length} 頁 PDF！`, '📥');
+      } catch (error) {
+        console.error('PDF export failed', error);
+        showToast('PDF 產生失敗，請重新整理後再試！', '❌');
+      } finally {
+        button.disabled = false;
+        button.classList.remove('opacity-60', 'cursor-wait');
+      }
+    });
+
+    // Add Single Question Button
+    document.getElementById('addSingleQuestionBtn').addEventListener('click', () => {
+      if (questionsData.length >= 20) {
+        showToast('題目數量已達上限！', '⚠️');
+        return;
+      }
+      questionsData.push({
+        target: "新",
+        confusing: "親",
+        clue: "迎接（　）的一年到來。",
+        pinyin: "ㄒㄧㄣ"
+      });
+      renderEditorList();
+      renderWorksheet();
+      showToast('已新增題目！');
+    });
+
+    // Batch Apply Characters
+    document.getElementById('applyBatchBtn').addEventListener('click', () => {
+      const rawText = document.getElementById('batchCharInput').value.trim();
+      if (!rawText) {
+        showToast('請輸入要生成的生字字群！', '⚠️');
+        return;
+      }
+      const chars = Array.from(rawText).filter(c => /[\u4e00-\u9fa5]/.test(c));
+      if (chars.length === 0) {
+        showToast('未檢測到有效漢字！', '⚠️');
+        return;
+      }
+
+      const qPerPage = parseInt(document.getElementById('questionsPerPageSelect').value);
+      questionsData = chars.slice(0, Math.max(qPerPage, chars.length)).map(c => {
+        const autoConf = findAutoConfusingChars(c, 2).map(item => item.char).join(', ');
+        return {
+          target: c,
+          confusing: autoConf,
+          clue: `請觀察線索，拼寫出「（　）」字。`,
+          pinyin: ""
+        };
+      });
+
+      renderEditorList();
+      renderWorksheet();
+      showToast(`已成功依 ${questionsData.length} 個生字建立題目！`, '🎉');
+    });
+
+    // Template Export / Import Handlers
+    document.getElementById('downloadTemplateBtn').addEventListener('click', () => {
+      const exportData = {
+        title: document.getElementById('sheetTitleInput').value,
+        subHeader: document.getElementById('sheetSubHeaderInput').value,
+        showConfusingHint: showConfusingHint,
+        questions: questionsData
+      };
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `漢字部件偵探題目範本_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('已下載題目範本 JSON！', '💾');
+    });
+
+    const uploadTemplateBtn = document.getElementById('uploadTemplateBtn');
+    const templateFileInput = document.getElementById('templateFileInput');
+
+    uploadTemplateBtn.addEventListener('click', () => {
+      templateFileInput.click();
+    });
+
+    templateFileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const parsed = JSON.parse(event.target.result);
+          if (parsed && Array.isArray(parsed.questions)) {
+            questionsData = parsed.questions;
+            if (parsed.title) {
+              document.getElementById('sheetTitleInput').value = parsed.title;
+              document.getElementById('previewSheetTitle').textContent = parsed.title;
+            }
+            if (parsed.subHeader) {
+              document.getElementById('sheetSubHeaderInput').value = parsed.subHeader;
+              document.getElementById('previewSubHeader').textContent = parsed.subHeader;
+            }
+            if (typeof parsed.showConfusingHint === 'boolean') {
+              showConfusingHint = parsed.showConfusingHint;
+              toggleConfusingHintCheckbox.checked = showConfusingHint;
+            }
+            renderEditorList();
+            renderWorksheet();
+            showToast(`成功匯入 ${questionsData.length} 道題目！`, '📂');
+          } else {
+            throw new Error('格式不正確');
+          }
+        } catch (err) {
+          showToast('題目範本 JSON 解析失敗，請確認格式！', '❌');
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    });
+
+    // Custom Database Upload handler
+    const uploadDbBtn = document.getElementById('uploadDbBtn');
+    const dbFileInput = document.getElementById('dbFileInput');
+
+    uploadDbBtn.addEventListener('click', () => {
+      dbFileInput.click();
+    });
+
+    dbFileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const parsed = JSON.parse(event.target.result);
+          if (typeof parsed === 'object' && parsed !== null) {
+            activeHanziDb = { ...DEFAULT_HANZI_DB, ...parsed };
+            saveDatabaseToStorage();
+            renderEditorList();
+            renderWorksheet();
+            showToast(`成功導入並記憶 ${Object.keys(activeHanziDb).length} 筆漢字部件！`, '🚀');
+          } else {
+            throw new Error('格式不符合');
+          }
+        } catch (err) {
+          showToast('JSON 檔案解析失敗，請確認格式！', '❌');
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    });
+
+    // Export Word (.doc) Handler
+    document.getElementById('exportWordBtn').addEventListener('click', () => {
+      const title = document.getElementById('sheetTitleInput').value || '生字部件大偵探';
+      const subHeader = document.getElementById('sheetSubHeaderInput').value;
+      const qPerPage = parseInt(document.getElementById('questionsPerPageSelect').value);
+      const displayQuestions = questionsData;
+
+      // Convert canvases to base64 images
+      let tableRows = '';
+      for (let i = 0; i < displayQuestions.length; i += 2) {
+        const q1 = displayQuestions[i];
+        const q2 = displayQuestions[i + 1];
+
+        const buildCellHtml = (q, index) => {
+          if (!q) return '<td style="width:50%; border:1px solid #ccc; padding:8px;"></td>';
+          const canvas = document.getElementById(`canvas_q_${index}`);
+          const dataUrl = canvas ? canvas.toDataURL('image/png') : '';
+          
+          let hintText = '';
+          if (showConfusingHint) {
+            if (q.confusing && q.confusing.trim()) {
+              hintText = `【形近字對比：${q.confusing}】`;
+            } else {
+              const autoFound = findAutoConfusingChars(q.target, 2).map(item => item.char);
+              hintText = autoFound.length > 0 ? `【推薦形近字：${autoFound.join('、')}】` : '【部件拼寫】';
+            }
+          }
+
+          let formattedClue = q.clue;
+          const hasBlankPattern = /[（(][\s　]*[）)]|__+|＿+/.test(formattedClue);
+          if (formattedClue.includes(q.target)) {
+            const repl = showAnswerKey ? `<b style="color:#dc2626; text-decoration:underline;">${q.target}</b>` : `（　）`;
+            formattedClue = formattedClue.replace(new RegExp(q.target, 'g'), repl);
+          } else if (hasBlankPattern) {
+            if (showAnswerKey) {
+              formattedClue = formattedClue.replace(/[（(][\s　]*[）)]/g, `（<b style="color:#dc2626;">${q.target}</b>）`);
+            }
+          } else {
+            formattedClue = `${formattedClue}（${showAnswerKey ? `<b style="color:#dc2626;">${q.target}</b>` : '　'}）`;
+          }
+
+          return `
+            <td style="width:50%; border:1px solid #94a3b8; padding:8px; vertical-align:top; background-color:#ffffff; font-family:'Microsoft JhengHei', sans-serif;">
+              <div style="font-size:12px; font-weight:bold; color:#1e293b; margin-bottom:4px;">
+                <span style="background-color:#1e293b; color:#ffffff; padding:1px 5px; border-radius:10px; font-size:11px;">${index + 1}</span>
+                <span style="color:#64748b; font-size:11px; margin-left:4px;">${hintText}</span>
+                ${showAnswerKey ? `<span style="color:#dc2626; float:right;">${q.pinyin || ''}</span>` : ''}
+              </div>
+              <div style="font-size:12px; line-height:1.4; color:#334155; margin-bottom:8px;">
+                ${formattedClue}
+              </div>
+              <table style="width:100%; border-collapse:collapse; border:none;">
+                <tr>
+                  <td style="vertical-align:middle; border:none; padding-right:6px;">
+                    <div style="font-size:9px; color:#94a3b8; margin-bottom:2px;">偵探部件庫</div>
+                    ${dataUrl ? `<img src="${dataUrl}" style="width:160px; height:50px; border:1px solid #cbd5e1; border-radius:4px; display:block;" />` : ''}
+                  </td>
+                  <td style="width:48px; text-align:center; vertical-align:middle; border:none;">
+                    <div style="font-size:9px; color:#64748b; margin-bottom:2px;">寫出正字</div>
+                    <div style="width:40px; height:40px; border:1.5px solid #dc2626; text-align:center; line-height:40px; font-size:24px; font-family:'BiauKai', 'DFKai-SB', serif; color:#dc2626; font-weight:bold; margin:0 auto;">
+                      ${showAnswerKey ? q.target : ''}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          `;
+        };
+
+        tableRows += `
+          <tr${i > 0 && i % qPerPage === 0 ? ' style="page-break-before:always;"' : ''}>
+            ${buildCellHtml(q1, i)}
+            ${buildCellHtml(q2, i + 1)}
+          </tr>
+        `;
+      }
+
+      const wordHtml = `
+        <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+        <head>
+          <meta charset='utf-8'>
+          <title>${title}</title>
+          <!--[if gte mso 9]>
+          <xml>
+            <w:WordDocument>
+              <w:View>Print</w:View>
+              <w:Zoom>100</w:Zoom>
+              <w:DoNotOptimizeForBrowser/>
+            </w:WordDocument>
+          </xml>
+          <![endif]-->
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 1.5cm 1.5cm 1.5cm 1.5cm;
+            }
+            body {
+              font-family: 'Microsoft JhengHei', sans-serif;
+            }
+          </style>
+        </head>
+        <body>
+          <div style="text-align:center; margin-bottom:10px;">
+            <h1 style="font-size:20pt; margin:0 0 5px 0; color:#0f172a;">${title}</h1>
+            <p style="font-size:10pt; color:#475569; margin:0 0 10px 0;">提示：仔細觀察偵探卡裡的零散部件，結合例句線索，找出屬於目標字的部件並在方格中端正寫出！</p>
+            <div style="font-size:10pt; font-weight:bold; border-top:1px solid #334155; border-bottom:1px solid #334155; padding:6px 0;">
+              ${subHeader}
+            </div>
+          </div>
+          <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+            ${tableRows}
+          </table>
+          <div style="margin-top:12px; font-size:8.5pt; color:#64748b; text-align:right;">
+            國語文課堂形近字與部件辨析學習單 · 部件偵探小組專用
+          </div>
+        </body>
+        </html>
+      `;
+
+      const blob = new Blob(['\ufeff' + wordHtml], { type: 'application/msword' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `漢字部件大偵探_${Date.now()}.doc`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('已匯出 Microsoft Word 檔！', '📄');
+    });
+
+    // Database Editor Modal Operations
+    const dbEditorModal = document.getElementById('dbEditorModal');
+    const editDbModalBtn = document.getElementById('editDbModalBtn');
+    const closeDbModalBtn = document.getElementById('closeDbModalBtn');
+    const modalFinishBtn = document.getElementById('modalFinishBtn');
+    const modalJsonSnippet = document.getElementById('modalJsonSnippet');
+
+    function updateModalSnippet() {
+      const keys = Object.keys(activeHanziDb).slice(0, 20);
+      const sample = {};
+      keys.forEach(k => sample[k] = activeHanziDb[k]);
+      modalJsonSnippet.value = JSON.stringify(sample, null, 2);
+      updateDbBadge();
+    }
+
+    editDbModalBtn.addEventListener('click', () => {
+      dbEditorModal.classList.remove('hidden');
+      updateModalSnippet();
+    });
+
+    closeDbModalBtn.addEventListener('click', () => {
+      dbEditorModal.classList.add('hidden');
+    });
+
+    modalFinishBtn.addEventListener('click', () => {
+      dbEditorModal.classList.add('hidden');
+      renderEditorList();
+      renderWorksheet();
+      showToast('部件庫設定已套用！', '✅');
+    });
+
+    // Search inside modal
+    document.getElementById('modalSearchBtn').addEventListener('click', () => {
+      const query = document.getElementById('modalSearchChar').value.trim();
+      if (!query) return;
+      const resArea = document.getElementById('modalSearchResultArea');
+      const resChar = document.getElementById('resTargetChar');
+      const resComps = document.getElementById('resTargetComps');
+
+      if (activeHanziDb[query]) {
+        resChar.textContent = query;
+        resComps.textContent = JSON.stringify(activeHanziDb[query]);
+        resArea.classList.remove('hidden');
+        showToast(`已找到「${query}」！`);
+      } else {
+        resArea.classList.add('hidden');
+        showToast(`庫中未收錄「${query}」，可手動新增。`, 'ℹ️');
+      }
+    });
+
+    // Save single entry in modal
+    document.getElementById('modalSaveEntryBtn').addEventListener('click', () => {
+      const char = document.getElementById('modalAddChar').value.trim();
+      const rawComps = document.getElementById('modalAddComps').value.trim();
+      if (!char || !rawComps) {
+        showToast('請輸入漢字與部件！', '⚠️');
+        return;
+      }
+      const compsArray = rawComps.split(/[,，、\s]+/).filter(Boolean);
+      activeHanziDb[char] = compsArray;
+      saveDatabaseToStorage();
+      updateModalSnippet();
+      document.getElementById('modalAddChar').value = '';
+      document.getElementById('modalAddComps').value = '';
+      showToast(`已更新「${char}」部件為：${compsArray.join(', ')}`, '🎉');
+    });
+
+    // Delete single entry found
+    document.getElementById('modalDeleteFoundBtn').addEventListener('click', () => {
+      const query = document.getElementById('resTargetChar').textContent;
+      if (query && activeHanziDb[query]) {
+        delete activeHanziDb[query];
+        saveDatabaseToStorage();
+        updateModalSnippet();
+        document.getElementById('modalSearchResultArea').classList.add('hidden');
+        showToast(`已刪除「${query}」之資料條目`);
+      }
+    });
+
+    // Modal Export Full DB JSON
+    document.getElementById('modalExportJsonBtn').addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify(activeHanziDb, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `hanzi_db_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('已下載目前完整部件庫 JSON！', '💾');
+    });
+
+    // Modal Reset DB to Default
+    document.getElementById('modalResetDbBtn').addEventListener('click', () => {
+      activeHanziDb = { ...DEFAULT_HANZI_DB };
+      saveDatabaseToStorage();
+      updateModalSnippet();
+      renderEditorList();
+      renderWorksheet();
+      showToast('已恢復預設核心部件庫！', '↺');
+    });
+
+    // Initial Launch
+    updateDbBadge();
+    renderEditorList();
+    renderWorksheet();
+    loadExternalDatabase();
+  </script>
+</body>
+</html>
