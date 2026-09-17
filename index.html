@@ -30,19 +30,25 @@
 
     /* Standard Chinese Calligraphy Tianzige (田字格) */
     .tianzige {
-      width: 44px;
-      height: 44px;
+      width: 88px;
+      height: 88px;
       border: 1.5px solid #dc2626;
       position: relative;
       background: #fff;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 28px;
+      font-size: 52px;
       font-family: 'BiauKai', 'Kaiti TC', 'Noto Serif TC', serif;
       font-weight: bold;
       color: #b91c1c;
       flex-shrink: 0;
+    }
+    /* Ten-question pages need the same two-times writing space while fitting A4. */
+    .tianzige-compact {
+      width: 80px;
+      height: 80px;
+      font-size: 46px;
     }
     .tianzige::before {
       content: '';
@@ -61,6 +67,39 @@
       width: 0;
       height: 100%;
       border-left: 1px dashed #fca5a5;
+    }
+
+    /* 注音在題幹括號中的直式提示：聲母、介音、韻母共用一條垂直線。 */
+    .zhuyin-blank {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.8em;
+      min-height: 2.7em;
+      vertical-align: middle;
+      line-height: 1;
+      position: relative;
+      margin: -0.45em 0;
+    }
+    .zhuyin-line {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-family: 'Microsoft JhengHei', sans-serif;
+      font-size: 0.86em;
+      line-height: 0.9;
+    }
+    .zhuyin-tone-right {
+      margin-left: 1px;
+      font-size: 0.82em;
+      align-self: center;
+    }
+    .zhuyin-tone-top {
+      position: absolute;
+      top: -0.18em;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.82em;
     }
 
     /* Print media styling */
@@ -108,6 +147,9 @@
         </button>
         <button id="quickShuffleBtn" class="bg-indigo-600 hover:bg-indigo-500 border border-indigo-400 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1">
           <span>🎲</span><span>重排部件</span>
+        </button>
+        <button id="shuffleQuestionsBtn" class="bg-indigo-600 hover:bg-indigo-500 border border-indigo-400 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1">
+          <span>🔀</span><span>打亂題目</span>
         </button>
         <button id="exportWordBtn" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow transition flex items-center gap-1">
           <span>📄</span><span>下載 Word 檔</span>
@@ -160,7 +202,7 @@
           </div>
           <div>
             <label class="block text-xs font-semibold text-slate-600 mb-1">班級姓名欄位說明</label>
-            <input type="text" id="sheetSubHeaderInput" value="______年______班  座號：______  姓名：____________  得分：______" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-indigo-400 focus:outline-none">
+            <input type="text" id="sheetSubHeaderInput" value="______年______班  座號：______  姓名：________________________  得分：______" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-indigo-400 focus:outline-none">
           </div>
         </div>
 
@@ -200,6 +242,16 @@
           </div>
           <label class="relative inline-flex items-center cursor-pointer">
             <input type="checkbox" id="toggleConfusingHintCheckbox" class="sr-only peer">
+            <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+          </label>
+        </div>
+        <div class="pt-2 border-t border-slate-100 flex items-center justify-between">
+          <div>
+            <div class="text-xs font-bold text-slate-700">在填空括號顯示直式注音</div>
+            <div class="text-[11px] text-slate-500">學生版可顯示目標字注音；聲調依國語直式注音位置排列</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="toggleZhuyinHintCheckbox" class="sr-only peer">
             <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
           </label>
         </div>
@@ -556,6 +608,61 @@
     let showAnswerKey = false;
     // Keep the student worksheet free of answer-like hints unless the teacher opts in.
     let showConfusingHint = false;
+    let showZhuyinHint = false;
+    let shuffleComponentPositionsOnNextRender = false;
+
+    function shuffledCopy(items) {
+      const result = [...items];
+      for (let i = result.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [result[i], result[j]] = [result[j], result[i]];
+      }
+      return result;
+    }
+
+    function splitZhuyin(pinyin) {
+      const value = (pinyin || '').trim();
+      const tones = { '˙': 'neutral', 'ˊ': 'right', 'ˇ': 'right', 'ˋ': 'right' };
+      let tone = '';
+      let tonePosition = '';
+      const symbols = [];
+      for (const char of Array.from(value)) {
+        if (tones[char]) {
+          tone = char;
+          tonePosition = tones[char];
+        } else if (!/\s/.test(char)) {
+          symbols.push(char);
+        }
+      }
+      return { symbols, tone, tonePosition };
+    }
+
+    function buildVerticalZhuyin(pinyin, inlineStyle = '') {
+      const { symbols, tone, tonePosition } = splitZhuyin(pinyin);
+      if (!symbols.length) return '　';
+      const line = symbols.map(symbol => `<span>${symbol}</span>`).join('');
+      const toneHtml = tone
+        ? `<span class="${tonePosition === 'neutral' ? 'zhuyin-tone-top' : 'zhuyin-tone-right'}">${tone}</span>`
+        : '';
+      return `<span class="zhuyin-blank"${inlineStyle ? ` style="${inlineStyle}"` : ''}><span class="zhuyin-line">${line}</span>${toneHtml}</span>`;
+    }
+
+    function buildClueBlank(q) {
+      if (showAnswerKey) return `（<span class="text-red-600 font-bold">${q.target}</span>）`;
+      return `（${showZhuyinHint ? buildVerticalZhuyin(q.pinyin) : '　'}）`;
+    }
+
+    function buildWordClueBlank(q) {
+      if (showAnswerKey) return `（<b style="color:#dc2626;">${q.target}</b>）`;
+      if (!showZhuyinHint) return '（　）';
+      const { symbols, tone, tonePosition } = splitZhuyin(q.pinyin);
+      if (!symbols.length) return '（　）';
+      const line = `<span style="display:inline-block; text-align:center; vertical-align:middle; line-height:10px; font-size:11px;">${symbols.join('<br>')}</span>`;
+      if (tonePosition === 'neutral') {
+        return `（<span style="display:inline-block; text-align:center; vertical-align:middle; line-height:10px; font-size:11px;">˙<br>${symbols.join('<br>')}</span>）`;
+      }
+      return `（${line}${tone ? `<span style="display:inline-block; vertical-align:middle; margin-left:1px; font-size:10px;">${tone}</span>` : ''}）`;
+    }
 
     // Toast helper
     function showToast(msg, icon = '✨') {
@@ -667,8 +774,17 @@
       };
     }
 
-    // Physics force-directed layout to scatter components nicely inside card
-    function renderScatterCanvas(canvas, componentsList, colorMode) {
+    // Grid-guided scatter keeps every component readable, including the largest
+    // setting of four distractors, in the narrower pool beside the writing grid.
+    function renderScatterCanvas(canvas, componentsList, colorMode, maxDistractors = 4) {
+      // Match the canvas drawing area to the narrower component pool before
+      // calculating type size, so the circles never overflow after the larger grid.
+      const displayWidth = Math.max(1, Math.floor(canvas.clientWidth));
+      const displayHeight = Math.max(1, Math.floor(canvas.clientHeight));
+      if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+        canvas.width = displayWidth;
+        canvas.height = displayHeight;
+      }
       const ctx = canvas.getContext('2d');
       const width = canvas.width;
       const height = canvas.height;
@@ -687,28 +803,42 @@
         ? ['#1d4ed8', '#b91c1c', '#047857', '#b45309', '#6d28d9', '#0e7490'] 
         : ['#1e293b', '#334155', '#475569'];
 
-      const padding = 14;
-      const fontSize = 21;
+      const correctCount = componentsList.filter(item => item.isCorrect).length;
+      const estimatedCapacity = Math.max(componentsList.length, correctCount + maxDistractors);
+      const rows = estimatedCapacity >= 5 ? 2 : 1;
+      const columns = Math.ceil(estimatedCapacity / rows);
+      const padding = 7;
+      const slotWidth = (width - padding * 2) / columns;
+      const slotHeight = (height - padding * 2) / rows;
+      const fontSize = Math.max(11, Math.min(
+        22,
+        slotWidth * 0.68,
+        slotHeight * 0.78
+      ));
       ctx.font = `bold ${fontSize}px 'BiauKai', 'Kaiti TC', 'Noto Serif TC', serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
       const particles = componentsList.map((item, idx) => {
+        const row = Math.floor(idx / columns);
+        const column = idx % columns;
+        const jitterX = (Math.random() - 0.5) * slotWidth * 0.16;
+        const jitterY = (Math.random() - 0.5) * slotHeight * 0.14;
         return {
           text: item.text,
           isCorrect: item.isCorrect,
           color: palette[idx % palette.length],
-          x: padding + Math.random() * (width - padding * 2),
-          y: padding + Math.random() * (height - padding * 2),
+          x: padding + slotWidth * (column + 0.5) + jitterX,
+          y: padding + slotHeight * (row + 0.5) + jitterY,
           vx: 0,
           vy: 0,
-          radius: fontSize * 0.72,
+          radius: Math.min(fontSize * 0.72, slotWidth * 0.43, slotHeight * 0.43),
           rotation: (Math.random() - 0.5) * (Math.PI / 5)
         };
       });
 
-      const iterations = 80;
-      const repulsionDist = fontSize * 1.45;
+      const iterations = 20;
+      const repulsionDist = Math.min(fontSize * 1.6, Math.min(slotWidth, slotHeight) * 0.82);
 
       for (let step = 0; step < iterations; step++) {
         for (let i = 0; i < particles.length; i++) {
@@ -727,10 +857,11 @@
             }
           }
 
-          if (particles[i].x < padding) particles[i].x = padding;
-          if (particles[i].x > width - padding) particles[i].x = width - padding;
-          if (particles[i].y < padding) particles[i].y = padding;
-          if (particles[i].y > height - padding) particles[i].y = height - padding;
+          const boundary = particles[i].radius + 2;
+          if (particles[i].x < padding + boundary) particles[i].x = padding + boundary;
+          if (particles[i].x > width - padding - boundary) particles[i].x = width - padding - boundary;
+          if (particles[i].y < padding + boundary) particles[i].y = padding + boundary;
+          if (particles[i].y > height - padding - boundary) particles[i].y = height - padding - boundary;
         }
       }
 
@@ -782,7 +913,7 @@
               <h1 class="text-2xl font-black tracking-wider text-slate-900 mb-0.5">${title}</h1>
               <div class="text-[11px] font-medium text-slate-600 tracking-wide">提示：仔細觀察偵探卡裡的零散部件，結合例句線索，找出屬於目標字的部件並在田字格端正寫出！</div>
             </div>
-            <div class="mt-2 text-xs text-slate-700 font-semibold flex justify-between px-2">${subHeader}</div>
+            <div class="mt-3 mb-1 text-xs text-slate-700 font-semibold flex justify-end px-2 py-2 leading-relaxed">${subHeader}</div>
           </header>
           <div class="grid grid-cols-2 gap-x-3 gap-y-2.5 flex-1 content-start"></div>
           <footer class="mt-2 pt-1.5 border-t border-slate-300 text-[10px] text-slate-500 flex justify-between items-center">
@@ -790,11 +921,18 @@
             <span>第 ${pageIndex + 1} 頁 / 共 ${totalPages} 頁</span>
           </footer>`;
         const previewGrid = sheet.querySelector('.grid');
+        if (isTenQuestions) {
+          // Fill the available first-page height with five readable card rows.
+          previewGrid.style.gridTemplateRows = 'repeat(5, minmax(0, 1fr))';
+        }
         pagesContainer.appendChild(sheet);
 
         pageQuestions.forEach((q, localIndex) => {
         const questionIndex = pageStart + localIndex;
         const compData = buildQuestionComponents(q, distractorCount);
+        const canvasComponents = shuffleComponentPositionsOnNextRender
+          ? shuffledCopy(compData.all)
+          : compData.all;
         
         let hintLabel = '';
         if (showConfusingHint) {
@@ -826,16 +964,14 @@
           // 如果例句中直接寫了目標字，將目標字轉換為底線挖空或顯示解答
           const replacement = showAnswerKey 
             ? `<span class="text-red-600 font-bold border-b-2 border-red-500 px-1">${q.target}</span>`
-            : `<span class="inline-block border-b-2 border-slate-700 w-8 text-center font-bold"></span>`;
+            : buildClueBlank(q);
           formattedClue = formattedClue.replace(new RegExp(q.target, 'g'), replacement);
         } else if (hasBlankPattern) {
           // 已有括號或填空時：學生版保持原括號，教師解答版則將括號內容替換為紅字解答
-          if (showAnswerKey) {
-            formattedClue = formattedClue.replace(/[（(][\s　]*[）)]/g, `（<span class="text-red-600 font-bold">${q.target}</span>）`);
-          }
+          formattedClue = formattedClue.replace(/[（(][\s　]*[）)]/g, buildClueBlank(q));
         } else {
           // 句子中完全沒有目標字也沒有任何括號挖空時，才在句尾補充一個填空括號
-          formattedClue = `${formattedClue}（${showAnswerKey ? `<span class="text-red-600 font-bold">${q.target}</span>` : '　'}）`;
+          formattedClue = `${formattedClue}${buildClueBlank(q)}`;
         }
 
         cardBox.innerHTML = `
@@ -856,14 +992,14 @@
           <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
             <div class="flex-1 flex flex-col">
               <span class="text-[9.5px] text-slate-400 font-semibold mb-0.5">偵探部件庫 (含干擾部件)</span>
-              <div class="w-full h-${isTenQuestions ? '13' : '15'} rounded border border-slate-200 overflow-hidden bg-slate-50 relative">
+              <div class="w-full h-${isTenQuestions ? '20' : '24'} rounded border border-slate-200 overflow-hidden bg-slate-50 relative">
                 <canvas id="canvas_q_${questionIndex}" width="180" height="${canvasHeight}" class="w-full h-full block"></canvas>
               </div>
             </div>
 
           <div class="flex flex-col items-center">
               <span class="text-[9.5px] text-slate-500 font-semibold mb-0.5">寫出正字</span>
-              <div class="tianzige ${isTenQuestions ? '!w-10 !h-10 !text-[24px]' : ''}">
+              <div class="tianzige ${isTenQuestions ? 'tianzige-compact' : ''}">
                 ${showAnswerKey ? q.target : ''}
               </div>
             </div>
@@ -876,11 +1012,12 @@
         requestAnimationFrame(() => {
           const canvas = document.getElementById(`canvas_q_${questionIndex}`);
           if (canvas) {
-            renderScatterCanvas(canvas, compData.all, colorMode);
+            renderScatterCanvas(canvas, canvasComponents, colorMode, 4);
           }
         });
         });
       }
+      shuffleComponentPositionsOnNextRender = false;
     }
 
     // Render Question Editors List
@@ -978,6 +1115,13 @@
       showToast(showConfusingHint ? '已開啟【形近字對比】標籤提示' : '已關閉【形近字對比】提示');
     });
 
+    const toggleZhuyinHintCheckbox = document.getElementById('toggleZhuyinHintCheckbox');
+    toggleZhuyinHintCheckbox.addEventListener('change', (e) => {
+      showZhuyinHint = e.target.checked;
+      renderWorksheet();
+      showToast(showZhuyinHint ? '已開啟填空括號的直式注音提示' : '已關閉直式注音提示');
+    });
+
     // Toggle Teacher Answer Key
     document.getElementById('toggleAnswerKeyBtn').addEventListener('click', () => {
       showAnswerKey = !showAnswerKey;
@@ -994,8 +1138,18 @@
 
     // Quick Re-shuffle button
     document.getElementById('quickShuffleBtn').addEventListener('click', () => {
+      shuffleComponentPositionsOnNextRender = true;
       renderWorksheet();
-      showToast('已重新亂序散布所有題目部件！', '🎲');
+      showToast('已重新打亂每題部件的位置！', '🎲');
+    });
+
+    // Shuffle the question cards themselves while leaving each question's data intact.
+    document.getElementById('shuffleQuestionsBtn').addEventListener('click', () => {
+      questionsData = shuffledCopy(questionsData);
+      shuffleComponentPositionsOnNextRender = true;
+      renderEditorList();
+      renderWorksheet();
+      showToast('題目順序與各題部件位置已重新打亂！', '🔀');
     });
 
     // Direct multi-page PDF download (rather than relying on a browser print dialog).
@@ -1077,6 +1231,7 @@
         title: document.getElementById('sheetTitleInput').value,
         subHeader: document.getElementById('sheetSubHeaderInput').value,
         showConfusingHint: showConfusingHint,
+        showZhuyinHint: showZhuyinHint,
         questions: questionsData
       };
       const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
@@ -1110,6 +1265,10 @@
             if (typeof parsed.showConfusingHint === 'boolean') {
               showConfusingHint = parsed.showConfusingHint;
               toggleConfusingHintCheckbox.checked = showConfusingHint;
+            }
+            if (typeof parsed.showZhuyinHint === 'boolean') {
+              showZhuyinHint = parsed.showZhuyinHint;
+              toggleZhuyinHintCheckbox.checked = showZhuyinHint;
             }
             renderEditorList();
             renderWorksheet();
@@ -1184,14 +1343,12 @@
           let formattedClue = q.clue;
           const hasBlankPattern = /[（(][\s　]*[）)]|__+|＿+/.test(formattedClue);
           if (formattedClue.includes(q.target)) {
-            const repl = showAnswerKey ? `<b style="color:#dc2626; text-decoration:underline;">${q.target}</b>` : `（　）`;
+            const repl = showAnswerKey ? `<b style="color:#dc2626; text-decoration:underline;">${q.target}</b>` : buildWordClueBlank(q);
             formattedClue = formattedClue.replace(new RegExp(q.target, 'g'), repl);
           } else if (hasBlankPattern) {
-            if (showAnswerKey) {
-              formattedClue = formattedClue.replace(/[（(][\s　]*[）)]/g, `（<b style="color:#dc2626;">${q.target}</b>）`);
-            }
+            formattedClue = formattedClue.replace(/[（(][\s　]*[）)]/g, buildWordClueBlank(q));
           } else {
-            formattedClue = `${formattedClue}（${showAnswerKey ? `<b style="color:#dc2626;">${q.target}</b>` : '　'}）`;
+            formattedClue = `${formattedClue}${buildWordClueBlank(q)}`;
           }
 
           return `
@@ -1208,11 +1365,11 @@
                 <tr>
                   <td style="vertical-align:middle; border:none; padding-right:6px;">
                     <div style="font-size:9px; color:#94a3b8; margin-bottom:2px;">偵探部件庫</div>
-                    ${dataUrl ? `<img src="${dataUrl}" style="width:160px; height:50px; border:1px solid #cbd5e1; border-radius:4px; display:block;" />` : ''}
+                    ${dataUrl ? `<img src="${dataUrl}" style="width:125px; height:64px; border:1px solid #cbd5e1; border-radius:4px; display:block;" />` : ''}
                   </td>
-                  <td style="width:48px; text-align:center; vertical-align:middle; border:none;">
+                  <td style="width:88px; text-align:center; vertical-align:middle; border:none;">
                     <div style="font-size:9px; color:#64748b; margin-bottom:2px;">寫出正字</div>
-                    <div style="width:40px; height:40px; border:1.5px solid #dc2626; text-align:center; line-height:40px; font-size:24px; font-family:'BiauKai', 'DFKai-SB', serif; color:#dc2626; font-weight:bold; margin:0 auto;">
+                    <div style="width:80px; height:80px; border:1.5px solid #dc2626; text-align:center; line-height:80px; font-size:46px; font-family:'BiauKai', 'DFKai-SB', serif; color:#dc2626; font-weight:bold; margin:0 auto;">
                       ${showAnswerKey ? q.target : ''}
                     </div>
                   </td>
@@ -1242,7 +1399,7 @@
             <div style="text-align:center; margin-bottom:8px;">
               <h1 style="font-size:20pt; margin:0 0 5px 0; color:#0f172a;">${title}</h1>
               <p style="font-size:10pt; color:#475569; margin:0 0 8px 0;">提示：仔細觀察偵探卡裡的零散部件，結合例句線索，找出屬於目標字的部件並在方格中端正寫出！</p>
-              <div style="font-size:10pt; font-weight:bold; border-top:1px solid #334155; border-bottom:1px solid #334155; padding:6px 0;">${subHeader}</div>
+              <div style="font-size:10pt; font-weight:bold; text-align:right; border-top:1px solid #334155; border-bottom:1px solid #334155; padding:9px 8px; line-height:1.6;">${subHeader}</div>
             </div>
             <table style="width:100%; table-layout:fixed; border-collapse:collapse; margin-top:8px;">
               ${tableRows}
