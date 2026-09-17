@@ -196,10 +196,10 @@
         <div class="pt-2 border-t border-slate-100 flex items-center justify-between">
           <div>
             <div class="text-xs font-bold text-slate-700">顯示形近字提示標籤</div>
-            <div class="text-[11px] text-slate-500">開起時顯示【形近字對比：晴、清】，關閉時僅標示題號保留純偵探線索</div>
+            <div class="text-[11px] text-slate-500">教師可自行開啟；學生版預設不顯示形近字答案提示</div>
           </div>
           <label class="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" id="toggleConfusingHintCheckbox" class="sr-only peer" checked>
+            <input type="checkbox" id="toggleConfusingHintCheckbox" class="sr-only peer">
             <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
           </label>
         </div>
@@ -554,7 +554,8 @@
     ];
 
     let showAnswerKey = false;
-    let showConfusingHint = true;
+    // Keep the student worksheet free of answer-like hints unless the teacher opts in.
+    let showConfusingHint = false;
 
     // Toast helper
     function showToast(msg, icon = '✨') {
@@ -569,13 +570,27 @@
       }, 2500);
     }
 
+    function downloadBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Keep the object URL alive long enough for Chrome and Edge to finish the download.
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    }
+
     // Component retrieval
     function getComponents(char) {
       if (!char) return [];
       if (activeHanziDb[char] && Array.isArray(activeHanziDb[char])) {
         return activeHanziDb[char].filter(c => c && c.length > 0 && !/^(\[|\]|G|T|J|K|V|H|A)$/.test(c));
       }
-      return [char];
+      // Never substitute a whole character for a missing component record.
+      // That would turn a component-selection task into a character-recognition task.
+      return [];
     }
 
     // Automatically find similar characters from DB
@@ -598,28 +613,41 @@
       return candidates.slice(0, limit);
     }
 
-    // Assemble correct + distractor components
+    // Assemble target components plus ONLY the non-shared components of visual-similar characters.
     function buildQuestionComponents(qItem, distractorCount) {
       const correctComps = getComponents(qItem.target);
       let distractorComps = [];
+      // A target character may appear as a higher-level component of another
+      // character (for example 悼 contains 卓).  The target must never be
+      // shown whole in the pool: it is represented only by its own breakdown.
+      const isAllowedDistractor = (component) => (
+        component &&
+        component !== qItem.target &&
+        !correctComps.includes(component) &&
+        !distractorComps.includes(component)
+      );
 
       if (qItem.confusing && qItem.confusing.trim()) {
-        const confChars = qItem.confusing.split(/[,，、\s]+/).filter(Boolean);
+        const confChars = qItem.confusing.split(/[,，、\s]+/).filter(c => c && c !== qItem.target);
         confChars.forEach(c => {
           const comps = getComponents(c);
           comps.forEach(comp => {
-            if (!correctComps.includes(comp) && !distractorComps.includes(comp)) {
+            if (isAllowedDistractor(comp)) {
               distractorComps.push(comp);
             }
           });
         });
       }
 
+      // When the teacher-specified visual-similar characters do not provide
+      // enough distractors, use other database characters that share at least
+      // one target component.  Shared components remain in the target set;
+      // only their different components become distractors.
       if (distractorComps.length < distractorCount) {
         const autoSim = findAutoConfusingChars(qItem.target, 5);
         for (const sim of autoSim) {
           for (const d of sim.diffComps) {
-            if (!correctComps.includes(d) && !distractorComps.includes(d)) {
+            if (isAllowedDistractor(d)) {
               distractorComps.push(d);
               if (distractorComps.length >= distractorCount) break;
             }
@@ -628,20 +656,13 @@
         }
       }
 
-      const commonRadicals = ["氵", "木", "亻", "口", "扌", "心", "日", "月", "目", "土", "金", "言", "艹", "犭", "糹"];
-      let rIdx = 0;
-      while (distractorComps.length < distractorCount && rIdx < commonRadicals.length) {
-        const cand = commonRadicals[rIdx++];
-        if (!correctComps.includes(cand) && !distractorComps.includes(cand)) {
-          distractorComps.push(cand);
-        }
-      }
-
       distractorComps = distractorComps.slice(0, distractorCount);
 
       return {
         correct: correctComps,
         distractors: distractorComps,
+        missingTargetComponents: correctComps.length === 0,
+        insufficientDistractors: correctComps.length > 0 && distractorComps.length < distractorCount,
         all: [...correctComps.map(c => ({ text: c, isCorrect: true })), ...distractorComps.map(c => ({ text: c, isCorrect: false }))]
       };
     }
@@ -787,6 +808,13 @@
           }
         }
 
+        let componentStatus = '';
+        if (compData.missingTargetComponents) {
+          componentStatus = '<span class="text-[10px] text-rose-600 font-semibold">此字缺少部件資料，請先在部件庫補充</span>';
+        } else if (compData.insufficientDistractors) {
+          componentStatus = `<span class="text-[10px] text-amber-600 font-semibold">僅找到 ${compData.distractors.length} 個形近字干擾部件</span>`;
+        }
+
         const cardBox = document.createElement('div');
         cardBox.className = `border border-slate-300 rounded-lg ${cardPaddingClass} flex flex-col justify-between bg-white relative shadow-[0_1px_2px_rgba(0,0,0,0.04)]`;
 
@@ -833,13 +861,14 @@
               </div>
             </div>
 
-            <div class="flex flex-col items-center">
+          <div class="flex flex-col items-center">
               <span class="text-[9.5px] text-slate-500 font-semibold mb-0.5">寫出正字</span>
               <div class="tianzige ${isTenQuestions ? '!w-10 !h-10 !text-[24px]' : ''}">
                 ${showAnswerKey ? q.target : ''}
               </div>
             </div>
           </div>
+          ${componentStatus ? `<div class="col-span-2 mt-1">${componentStatus}</div>` : ''}
         `;
 
         previewGrid.appendChild(cardBox);
@@ -1051,12 +1080,7 @@
         questions: questionsData
       };
       const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `漢字部件偵探題目範本_${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `漢字部件偵探題目範本_${Date.now()}.json`);
       showToast('已下載題目範本 JSON！', '💾');
     });
 
@@ -1079,11 +1103,9 @@
             questionsData = parsed.questions;
             if (parsed.title) {
               document.getElementById('sheetTitleInput').value = parsed.title;
-              document.getElementById('previewSheetTitle').textContent = parsed.title;
             }
             if (parsed.subHeader) {
               document.getElementById('sheetSubHeaderInput').value = parsed.subHeader;
-              document.getElementById('previewSubHeader').textContent = parsed.subHeader;
             }
             if (typeof parsed.showConfusingHint === 'boolean') {
               showConfusingHint = parsed.showConfusingHint;
@@ -1143,13 +1165,8 @@
       const qPerPage = parseInt(document.getElementById('questionsPerPageSelect').value);
       const displayQuestions = questionsData;
 
-      // Convert canvases to base64 images
-      let tableRows = '';
-      for (let i = 0; i < displayQuestions.length; i += 2) {
-        const q1 = displayQuestions[i];
-        const q2 = displayQuestions[i + 1];
-
-        const buildCellHtml = (q, index) => {
+      // Convert the same per-question canvases used in the PDF preview to images.
+      const buildCellHtml = (q, index) => {
           if (!q) return '<td style="width:50%; border:1px solid #ccc; padding:8px;"></td>';
           const canvas = document.getElementById(`canvas_q_${index}`);
           const dataUrl = canvas ? canvas.toDataURL('image/png') : '';
@@ -1178,7 +1195,7 @@
           }
 
           return `
-            <td style="width:50%; border:1px solid #94a3b8; padding:8px; vertical-align:top; background-color:#ffffff; font-family:'Microsoft JhengHei', sans-serif;">
+            <td style="width:50%; height:40mm; border:1px solid #94a3b8; padding:6px; vertical-align:top; background-color:#ffffff; font-family:'Microsoft JhengHei', sans-serif;">
               <div style="font-size:12px; font-weight:bold; color:#1e293b; margin-bottom:4px;">
                 <span style="background-color:#1e293b; color:#ffffff; padding:1px 5px; border-radius:10px; font-size:11px;">${index + 1}</span>
                 <span style="color:#64748b; font-size:11px; margin-left:4px;">${hintText}</span>
@@ -1203,14 +1220,37 @@
               </table>
             </td>
           `;
-        };
+      };
 
-        tableRows += `
-          <tr${i > 0 && i % qPerPage === 0 ? ' style="page-break-before:always;"' : ''}>
-            ${buildCellHtml(q1, i)}
-            ${buildCellHtml(q2, i + 1)}
-          </tr>
-        `;
+      // Each page is its own Word table, so Word does not split a ten-question
+      // worksheet across pages or move the heading away from its questions.
+      const totalPages = Math.max(1, Math.ceil(displayQuestions.length / qPerPage));
+      let wordPages = '';
+      for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+        const start = pageIndex * qPerPage;
+        const pageQuestions = displayQuestions.slice(start, start + qPerPage);
+        let tableRows = '';
+        for (let localIndex = 0; localIndex < pageQuestions.length; localIndex += 2) {
+          const questionIndex = start + localIndex;
+          tableRows += `<tr style="page-break-inside:avoid;">
+            ${buildCellHtml(pageQuestions[localIndex], questionIndex)}
+            ${buildCellHtml(pageQuestions[localIndex + 1], questionIndex + 1)}
+          </tr>`;
+        }
+        wordPages += `
+          <div style="page-break-after:${pageIndex < totalPages - 1 ? 'always' : 'auto'};">
+            <div style="text-align:center; margin-bottom:8px;">
+              <h1 style="font-size:20pt; margin:0 0 5px 0; color:#0f172a;">${title}</h1>
+              <p style="font-size:10pt; color:#475569; margin:0 0 8px 0;">提示：仔細觀察偵探卡裡的零散部件，結合例句線索，找出屬於目標字的部件並在方格中端正寫出！</p>
+              <div style="font-size:10pt; font-weight:bold; border-top:1px solid #334155; border-bottom:1px solid #334155; padding:6px 0;">${subHeader}</div>
+            </div>
+            <table style="width:100%; table-layout:fixed; border-collapse:collapse; margin-top:8px;">
+              ${tableRows}
+            </table>
+            <div style="margin-top:8px; font-size:8.5pt; color:#64748b; text-align:right;">
+              國語文課堂形近字與部件辨析學習單 · 部件偵探小組專用　第 ${pageIndex + 1} 頁 / 共 ${totalPages} 頁
+            </div>
+          </div>`;
       }
 
       const wordHtml = `
@@ -1230,7 +1270,7 @@
           <style>
             @page {
               size: A4 portrait;
-              margin: 1.5cm 1.5cm 1.5cm 1.5cm;
+              margin: 1.2cm 1.2cm 1.2cm 1.2cm;
             }
             body {
               font-family: 'Microsoft JhengHei', sans-serif;
@@ -1238,30 +1278,13 @@
           </style>
         </head>
         <body>
-          <div style="text-align:center; margin-bottom:10px;">
-            <h1 style="font-size:20pt; margin:0 0 5px 0; color:#0f172a;">${title}</h1>
-            <p style="font-size:10pt; color:#475569; margin:0 0 10px 0;">提示：仔細觀察偵探卡裡的零散部件，結合例句線索，找出屬於目標字的部件並在方格中端正寫出！</p>
-            <div style="font-size:10pt; font-weight:bold; border-top:1px solid #334155; border-bottom:1px solid #334155; padding:6px 0;">
-              ${subHeader}
-            </div>
-          </div>
-          <table style="width:100%; border-collapse:collapse; margin-top:10px;">
-            ${tableRows}
-          </table>
-          <div style="margin-top:12px; font-size:8.5pt; color:#64748b; text-align:right;">
-            國語文課堂形近字與部件辨析學習單 · 部件偵探小組專用
-          </div>
+          ${wordPages}
         </body>
         </html>
       `;
 
       const blob = new Blob(['\ufeff' + wordHtml], { type: 'application/msword' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `漢字部件大偵探_${Date.now()}.doc`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `漢字部件大偵探_${Date.now()}.doc`);
       showToast('已匯出 Microsoft Word 檔！', '📄');
     });
 
@@ -1347,12 +1370,7 @@
     // Modal Export Full DB JSON
     document.getElementById('modalExportJsonBtn').addEventListener('click', () => {
       const blob = new Blob([JSON.stringify(activeHanziDb, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `hanzi_db_${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `hanzi_db_${Date.now()}.json`);
       showToast('已下載目前完整部件庫 JSON！', '💾');
     });
 
