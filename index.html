@@ -187,6 +187,9 @@
         <p class="text-xs text-slate-500 leading-relaxed">
           已具備本機自動記憶（下次開啟自動保留最新部件資料），無需每次重複上傳。亦可隨時點擊「編輯部件庫」檢視、修改或匯出 JSON。
         </p>
+        <div id="dbDropZone" class="mt-3 rounded-lg border-2 border-dashed border-indigo-200 bg-indigo-50/50 px-3 py-2.5 text-center text-xs font-semibold text-indigo-700 transition">
+          將部件庫 JSON 檔拖放到這裡即可匯入
+        </div>
       </div>
 
       <!-- Sheet Config Panel -->
@@ -275,6 +278,10 @@
               <span>＋</span> 加題
             </button>
           </div>
+        </div>
+
+        <div id="templateDropZone" class="rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 px-3 py-2.5 text-center text-xs font-semibold text-slate-600 transition">
+          將題目範本 JSON 檔拖放到這裡即可匯入
         </div>
 
         <!-- Quick Batch Input -->
@@ -480,10 +487,10 @@
     };
 
     const LOCAL_STORAGE_DB_KEY = "hanzi_custom_db_v2";
-    // Keep the large component library outside this HTML.  On GitHub Pages this
-    // relative URL resolves to the same repository, and the last loaded copy
-    // remains available in localStorage when the network is unavailable.
-    const EXTERNAL_DB_URL = './hanzi_db.json';
+    // Always read the public canonical library, even when this HTML is opened
+    // locally with file:/// where browsers may block a relative JSON fetch.
+    // The last successful copy remains available in localStorage offline.
+    const EXTERNAL_DB_URL = 'https://andice0107.github.io/hanzi-component-detective/hanzi_db.json';
 
     // Load active DB from localStorage if exists
     let activeHanziDb = loadInitialDatabase();
@@ -1242,45 +1249,49 @@
     const uploadTemplateBtn = document.getElementById('uploadTemplateBtn');
     const templateFileInput = document.getElementById('templateFileInput');
 
+    function readJsonFile(file, onSuccess, errorMessage) {
+      if (!file) return;
+      if (!file.name.toLowerCase().endsWith('.json')) {
+        showToast('請選擇 JSON 格式檔案！', '⚠️');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          onSuccess(JSON.parse(event.target.result));
+        } catch (err) {
+          showToast(errorMessage, '❌');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function importTemplateFile(file) {
+      readJsonFile(file, (parsed) => {
+        if (!parsed || !Array.isArray(parsed.questions)) throw new Error('格式不正確');
+        questionsData = parsed.questions;
+        if (parsed.title) document.getElementById('sheetTitleInput').value = parsed.title;
+        if (parsed.subHeader) document.getElementById('sheetSubHeaderInput').value = parsed.subHeader;
+        if (typeof parsed.showConfusingHint === 'boolean') {
+          showConfusingHint = parsed.showConfusingHint;
+          toggleConfusingHintCheckbox.checked = showConfusingHint;
+        }
+        if (typeof parsed.showZhuyinHint === 'boolean') {
+          showZhuyinHint = parsed.showZhuyinHint;
+          toggleZhuyinHintCheckbox.checked = showZhuyinHint;
+        }
+        renderEditorList();
+        renderWorksheet();
+        showToast(`成功匯入 ${questionsData.length} 道題目！`, '📂');
+      }, '題目範本 JSON 解析失敗，請確認格式！');
+    }
+
     uploadTemplateBtn.addEventListener('click', () => {
       templateFileInput.click();
     });
 
     templateFileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const parsed = JSON.parse(event.target.result);
-          if (parsed && Array.isArray(parsed.questions)) {
-            questionsData = parsed.questions;
-            if (parsed.title) {
-              document.getElementById('sheetTitleInput').value = parsed.title;
-            }
-            if (parsed.subHeader) {
-              document.getElementById('sheetSubHeaderInput').value = parsed.subHeader;
-            }
-            if (typeof parsed.showConfusingHint === 'boolean') {
-              showConfusingHint = parsed.showConfusingHint;
-              toggleConfusingHintCheckbox.checked = showConfusingHint;
-            }
-            if (typeof parsed.showZhuyinHint === 'boolean') {
-              showZhuyinHint = parsed.showZhuyinHint;
-              toggleZhuyinHintCheckbox.checked = showZhuyinHint;
-            }
-            renderEditorList();
-            renderWorksheet();
-            showToast(`成功匯入 ${questionsData.length} 道題目！`, '📂');
-          } else {
-            throw new Error('格式不正確');
-          }
-        } catch (err) {
-          showToast('題目範本 JSON 解析失敗，請確認格式！', '❌');
-        }
-      };
-      reader.readAsText(file);
+      importTemplateFile(e.target.files[0]);
       e.target.value = '';
     });
 
@@ -1288,34 +1299,44 @@
     const uploadDbBtn = document.getElementById('uploadDbBtn');
     const dbFileInput = document.getElementById('dbFileInput');
 
+    function importDatabaseFile(file) {
+      readJsonFile(file, (parsed) => {
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('格式不符合');
+        activeHanziDb = { ...DEFAULT_HANZI_DB, ...parsed };
+        saveDatabaseToStorage();
+        renderEditorList();
+        renderWorksheet();
+        showToast(`成功導入並記憶 ${Object.keys(activeHanziDb).length} 筆漢字部件！`, '🚀');
+      }, '部件庫 JSON 解析失敗，請確認格式！');
+    }
+
     uploadDbBtn.addEventListener('click', () => {
       dbFileInput.click();
     });
 
     dbFileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const parsed = JSON.parse(event.target.result);
-          if (typeof parsed === 'object' && parsed !== null) {
-            activeHanziDb = { ...DEFAULT_HANZI_DB, ...parsed };
-            saveDatabaseToStorage();
-            renderEditorList();
-            renderWorksheet();
-            showToast(`成功導入並記憶 ${Object.keys(activeHanziDb).length} 筆漢字部件！`, '🚀');
-          } else {
-            throw new Error('格式不符合');
-          }
-        } catch (err) {
-          showToast('JSON 檔案解析失敗，請確認格式！', '❌');
-        }
-      };
-      reader.readAsText(file);
+      importDatabaseFile(e.target.files[0]);
       e.target.value = '';
     });
+
+    function enableJsonDropZone(zoneId, onFile) {
+      const zone = document.getElementById(zoneId);
+      ['dragenter', 'dragover'].forEach(eventName => zone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        zone.classList.add('border-indigo-500', 'bg-indigo-100');
+      }));
+      ['dragleave', 'drop'].forEach(eventName => zone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        zone.classList.remove('border-indigo-500', 'bg-indigo-100');
+      }));
+      zone.addEventListener('drop', (event) => {
+        const [file] = event.dataTransfer.files;
+        onFile(file);
+      });
+    }
+
+    enableJsonDropZone('templateDropZone', importTemplateFile);
+    enableJsonDropZone('dbDropZone', importDatabaseFile);
 
     // Export Word (.doc) Handler
     document.getElementById('exportWordBtn').addEventListener('click', () => {
